@@ -4,41 +4,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import time
 from typing import Any, Dict, List, Optional, Union
 
 from openai import OpenAI
 
 # OpenAI client reads OPENAI_API_KEY from environment by default
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=float(os.getenv("AO_OPENAI_TIMEOUT", "120")))
-
-
-def _chat_completion_with_retry(*, model: str, messages: List[Dict[str, str]], temperature: float, max_retries: int = 3) -> str:
-    """Wrapper com timeout e retries (rede instável / travas).
-    Retorna content string (pode ser vazia). Lança exceção após esgotar tentativas.
-    """
-    backoff = float(os.getenv("AO_OPENAI_RETRY_BACKOFF", "2.0"))
-    for attempt in range(1, max_retries + 1):
-        try:
-            t0 = time.time()
-            if attempt > 1:
-                print(f"🔁 Re-tentando OpenAI ({attempt}/{max_retries})...")
-            resp = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-            )
-            dt = time.time() - t0
-            if dt > 5:
-                print(f"✅ OpenAI respondeu em {dt:.1f}s")
-            return (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            # Mostra erro curto e tenta novamente
-            print(f"⚠️ OpenAI falhou (tentativa {attempt}/{max_retries}): {type(e).__name__}: {e}")
-            if attempt >= max_retries:
-                raise
-            time.sleep(backoff * attempt)
-    return ""
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def _extract_json_candidate(text: str) -> Optional[str]:
@@ -165,10 +136,15 @@ def _repair_to_json(model: str, bad_output: str) -> str:
         "Conteúdo:\n"
         + bad_output
     )
-    return _chat_completion_with_retry(model=model, messages=[
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
             {"role": "system", "content": "Você é um conversor rigoroso para JSON válido."},
             {"role": "user", "content": repair_prompt},
-        ], temperature=0.1, max_retries=int(os.getenv("AO_OPENAI_RETRY", "3")))
+        ],
+        temperature=0.1,
+    )
+    return (resp.choices[0].message.content or "").strip()
 
 
 def generate_short_script() -> Dict[str, Any]:
@@ -213,7 +189,7 @@ def generate_short_script() -> Dict[str, Any]:
         "}\n"
     )
 
-    raw = _chat_completion_with_retry(
+    response = client.chat.completions.create(
         model=model,
         messages=[
             {
@@ -223,8 +199,9 @@ def generate_short_script() -> Dict[str, Any]:
             {"role": "user", "content": prompt},
         ],
         temperature=float(os.getenv("AO_SCRIPT_TEMPERATURE", "0.8")),
-        max_retries=int(os.getenv("AO_OPENAI_RETRY", "3")),
     )
+
+    raw = (response.choices[0].message.content or "").strip()
 
     data = _safe_json_loads(raw)
 
@@ -366,13 +343,18 @@ def _repair_long_to_json(model: str, bad_output: str, scenes_count: int) -> str:
         "Conteúdo:\\n"
         + bad_output
     )
-    return _chat_completion_with_retry(model=model, messages=[
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
             {"role": "system", "content": "Você é um reparador de JSON. Retorne somente JSON válido."},
             {"role": "user", "content": repair_prompt},
-        ], temperature=0.0, max_retries=int(os.getenv("AO_OPENAI_RETRY", "3")))
+        ],
+        temperature=0.0,
+    )
+    return resp.choices[0].message.content or ""
 
 
-def generate_long_script() -> Dict[str, Any]:
+def generate_long_script(target_minutes: float | None = None) -> Dict[str, Any]:
     """
     Gera roteiro LONG (5–8 min) para o canal Arquivo Oculto.
     A IA escolhe um caso real dentro do nicho definido por AO_LONG_THEME.
@@ -382,17 +364,36 @@ def generate_long_script() -> Dict[str, Any]:
     theme = _get_long_theme()
 
     # duração/escopo
-    try:
-        minutes = float(os.getenv("AO_LONG_MINUTES", "6.5"))
-    except Exception:
-        minutes = 6.5
-    minutes = max(4.5, min(10.0, minutes))
+    # - prioridade 1: parâmetro target_minutes (CLI --minutes)
+    # - prioridade 2: ENV AO_LONG_MINUTES
+    # Observação: para desenvolvimento/testes, aceitamos até 1.0 min.
+    minutes_src = target_minutes
+    if minutes_src is None:
+        try:
+            minutes_src = float(os.getenv("AO_LONG_MINUTES", "6.5"))
+        except Exception:
+            minutes_src = 6.5
 
     try:
-        scenes_count = int(os.getenv("AO_LONG_SCENES", "14"))
+        minutes = float(minutes_src)
     except Exception:
-        scenes_count = 14
-    scenes_count = max(12, min(18, scenes_count))
+        minutes = 6.5
+
+    # Permite vídeos curtos para teste; em produção você pode subir o mínimo via ENV.
+    minutes = max(1.0, min(20.0, minutes))
+
+    # Quantidade de cenas:
+    # - se AO_LONG_SCENES estiver definido, respeita
+    # - caso contrário, ajusta automaticamente com base na duração (≈2.15 cenas/min, 6.5min ~ 14 cenas)
+    scenes_env = os.getenv("AO_LONG_SCENES", "").strip()
+    if scenes_env:
+        try:
+            scenes_count = int(scenes_env)
+        except Exception:
+            scenes_count = 14
+    else:
+        scenes_count = int(round(minutes * 2.15))
+        scenes_count = max(8, min(22, scenes_count))
 
     # fechamento (IA escolhe 1)
     closings = [
@@ -463,15 +464,16 @@ def generate_long_script() -> Dict[str, Any]:
         "Regras finais: JSON puro; não inclua 'pausa final' nem '...'.\\n"
     )
 
-    raw = _chat_completion_with_retry(
+    resp = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": "Você cria roteiros LONG (PT-BR) com estética documental e tom neutro. Responda sempre em JSON puro."},
             {"role": "user", "content": prompt},
         ],
         temperature=float(os.getenv("AO_LONG_TEMPERATURE", "0.8")),
-        max_retries=int(os.getenv("AO_OPENAI_RETRY", "3")),
     )
+
+    raw = resp.choices[0].message.content or ""
     data = _safe_json_loads(raw)
 
     if not isinstance(data, dict):

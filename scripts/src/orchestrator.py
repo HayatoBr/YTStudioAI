@@ -184,9 +184,9 @@ def run_auto_short() -> Dict[str, Any]:
     return {"video": out_video, "audio": mixed_path}
 
 
-def run_auto_long() -> Dict[str, Any]:
+def run_auto_long(minutes: float | None = None) -> Dict[str, Any]:
     """
-    Pipeline LONG automático:
+    Pipeline LONG automático (duração alvo via --minutes):
     - Roteiro LONG (JSON)
     - Legendas extraídas da narração
     - Visual plan (imagens/motion)
@@ -197,7 +197,7 @@ def run_auto_long() -> Dict[str, Any]:
 
     print("▶ Gerando LONG em modo automático...")
     print("🧠 Gerando roteiro LONG automático...")
-    long_data = _ensure_dict(generate_long_script())
+    long_data = _ensure_dict(generate_long_script(target_minutes=minutes))
 
     narration_text = str(long_data.get("narration") or "").strip()
     if not narration_text:

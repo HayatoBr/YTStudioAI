@@ -17,12 +17,12 @@ def main():
         return
 
     if args.long_only:
-        run_auto_long()
+        run_auto_long(minutes=args.minutes)
         return
 
     if args.run_all:
         run_auto_short()
-        run_auto_long()
+        run_auto_long(minutes=args.minutes)
         return
 
     if args.auto:
