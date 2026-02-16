@@ -1,0 +1,74 @@
+# YTStudioAI - Git ignore
+# ----------------------
+# Objetivo: versionar apenas o código/ativos essenciais, ignorando saídas geradas e arquivos locais.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Ambientes virtuais / dependências locais
+.venv/
+venv/
+env/
+ENV/
+dist/
+build/
+*.egg-info/
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs e temporários
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Segredos / credenciais locais (NUNCA subir)
+.env
+.env.*
+*.env
+client_secret.json
+client_secrets.json
+token.json
+tokens.json
+credentials.json
+*.pem
+*.key
+
+# Saídas geradas pelo pipeline (NÃO versionar)
+output/
+**/output/
+
+# Arquivos de mídia gerados (normalmente em output/)
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.wav
+*.ass
+*.srt
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Exceções: manter ativos do projeto (não gerados)
+!assets/watermark/watermark.png
+!assets/music/
+!assets/music/*.mp3
+
+# Cache interno (gerado)
+assets/watermark/_cache/
+**/_cache/

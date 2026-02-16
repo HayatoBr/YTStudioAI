@@ -1,0 +1,14 @@
+
+channel:
+  name: Arquivo Oculto
+  description: >
+    Arquivo Oculto investiga mistérios reais, casos não resolvidos,
+    desaparecimentos documentados, eventos históricos controversos
+    e evidências que desafiam explicações oficiais.
+production:
+  shorts_per_week: 1
+budget:
+  monthly_usd_limit: 15
+brand:
+  style_prefix: "documentary cinematic, low key lighting, film grain, desaturated colors, fog, 35mm"
+  negative_prompt: "text, letters, watermark, logo"

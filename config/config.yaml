@@ -1,0 +1,50 @@
+channel:
+  name: Arquivo Oculto
+  language: pt-BR
+  description: 'Arquivo Oculto investiga mistérios reais, casos não resolvidos, desaparecimentos
+    documentados, eventos históricos controversos e evidências que desafiam explicações
+    oficiais. Aqui você encontra relatos investigativos, histórias reais e análises
+    de casos intrigantes que continuam gerando perguntas.
+
+    Toda semana publicamos vídeos curtos investigativos com narrativa cinematográfica
+    e base documental.'
+audio:
+  music_dir: assets/music
+  watermark_path: assets/watermark/watermark.png
+  music_volume: 0.1
+video:
+  fps: 30
+  zoom_strength: 0.06
+  long_16x9:
+    width: 1920
+    height: 1080
+  long_9x16:
+    width: 1080
+    height: 1920
+paths:
+  outputs_dir: outputs
+  logs_dir: data/logs
+openai:
+  model_text: gpt-4o-mini
+  model_image: gpt-image-1
+  model_tts: gpt-4o-mini-tts
+  tts_voice: alloy
+  image_size: 1024x1024
+  max_images_per_run: 10
+  max_tts_chars_per_run: 8000
+shorts:
+  enabled: true
+  target_duration_sec: 55
+  scene_count: 7
+  subtitle_style: tiktok
+  max_chars: 520
+brand:
+  dna_style_prefix: documentary cinematic, low-key lighting, film grain, vignette,
+    desaturated cool tones, subtle fog haze, 35mm, shallow depth of field
+  negative_prompt: text, letters, watermark, logo, captions, subtitles, ui, interface,
+    signature, brand, overexposed, cartoon, anime
+  anchors:
+  - dossiê/arquivo sobre mesa
+  - silhueta humana de costas
+  - evidência simbólica (objeto)
+  - local do evento (noite, neblina)
