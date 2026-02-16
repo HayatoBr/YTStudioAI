@@ -297,6 +297,48 @@ def enrich_visual_plan(data: Dict[str, Any], video_type: str = "short") -> Dict[
     data["scenes"] = enriched
     return data
 
+# ---------------------------------------------------------------------------
+# Compat / API pública esperada pelo orchestrator
+# Ao longo dos patches, o orchestrator procura por funções como:
+# build_visual_plan / build_plan / build_visuals / make_visual_plan / etc.
+# Esta camada garante que o LONG/SHORT gerem prompts e (opcionalmente) imagens.
+# ---------------------------------------------------------------------------
+
+from .visual_image_pipeline import generate_images_for_scenes
+
+def build_visual_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    """Enriquece cenas com image_prompt + motion/template e gera imagens (cache) se possível.
+    Escreve scene['image_prompt'] e scene['_image_path'].
+    """
+    data = enrich_visual_plan(data, video_type=video_type)
+    # Gera imagens com cache; se o usuário desativar imagens via ENV, o orchestrator nem chama.
+    data = generate_images_for_scenes(data, video_type=video_type)
+    return data
+
+# Aliases para compatibilidade (orchestrator tenta vários nomes)
+def build_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def build_visuals(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def make_visual_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def create_visual_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def generate_visual_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def extract_visual_plan(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+def plan_visuals(data: Dict[str, Any], video_type: str = "long") -> Dict[str, Any]:
+    return build_visual_plan(data, video_type=video_type)
+
+
+
 def visual_plan_summary(data: Dict[str, Any]) -> str:
     scenes = data.get("scenes") or []
     if not isinstance(scenes, list) or not scenes:
