@@ -1,66 +1,100 @@
 # tools/auto_push.ps1
 # Auto-sync seguro do YTStudioAI para o GitHub (branch dev)
-# - Só comita se houver mudanças
-# - Faz pull --rebase antes de comitar (evita divergência)
-# - Trabalha APENAS na branch de trabalho (dev)
-# Requisitos: Git instalado e 'origin' configurado
+# - TRAVA EXTRA: NÃO roda se detectar render/FFmpeg em execução
+# - Comita primeiro se houver mudanças
+# - Depois faz pull --rebase e push
 
 $ErrorActionPreference = "Stop"
 
-# Ajuste se seu projeto estiver em outro caminho:
 $RepoPath = "C:\YTStudioAI"
 $Branch   = "dev"
 
+function Test-RenderRunning {
+    param(
+        [string]$RepoPath,
+        [int]$ProgressFreshSeconds = 300
+    )
+
+    $now = Get-Date
+
+    # Verifica arquivos de progresso do FFmpeg
+    $patterns = @(
+        "$RepoPath\output\shorts\.ffmpeg_progress_*.txt",
+        "$RepoPath\output\longs\.ffmpeg_progress_*.txt",
+        "$RepoPath\output\.ffmpeg_progress_*.txt"
+    )
+
+    foreach ($pattern in $patterns) {
+        $files = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue
+        foreach ($f in $files) {
+            $age = ($now - $f.LastWriteTime).TotalSeconds
+            if ($age -lt $ProgressFreshSeconds) {
+                return $true
+            }
+        }
+    }
+
+    # Verifica ffmpeg rodando
+    if (Get-Process -Name "ffmpeg" -ErrorAction SilentlyContinue) {
+        return $true
+    }
+
+    # Verifica python rodando com projeto
+    try {
+        $py = Get-CimInstance Win32_Process -Filter "name='python.exe' OR name='pythonw.exe'" -ErrorAction SilentlyContinue
+        foreach ($p in $py) {
+            $cmd = ($p.CommandLine | Out-String).ToLower()
+            if ($cmd -match "c:\\ytstudioai\\main\.py" -or
+                $cmd -match "scripts\\src\\renderer\.py" -or
+                $cmd -match "scripts\\src\\orchestrator\.py") {
+                return $true
+            }
+        }
+    } catch {}
+
+    return $false
+}
+
+if (Test-RenderRunning -RepoPath $RepoPath) {
+    Write-Host "TRAVA: render/FFmpeg detectado. Auto-push cancelado."
+    exit 0
+}
+
 Set-Location $RepoPath
 
-# Garante que a pasta é um repositório git
 if (-not (Test-Path ".git")) {
-  Write-Host "ERRO: .git nao encontrado em $RepoPath"
-  exit 2
+    Write-Host "ERRO: .git nao encontrado."
+    exit 2
 }
 
-# Garante que o remote origin existe
-$origin = git remote | Select-String -Pattern "^origin$"
-if (-not $origin) {
-  Write-Host "ERRO: remote 'origin' nao configurado. Rode: git remote add origin <URL>"
-  exit 3
+if (-not (git remote | Select-String "^origin$")) {
+    Write-Host "ERRO: remote 'origin' nao configurado."
+    exit 3
 }
 
-# Troca para a branch de trabalho (cria se nao existir localmente)
 $branches = git branch --list $Branch
 if (-not $branches) {
-  git checkout -b $Branch
+    git checkout -b $Branch | Out-Null
 } else {
-  git checkout $Branch | Out-Null
+    git checkout $Branch | Out-Null
 }
 
-# Atualiza com o remoto antes de comitar (melhor pratica)
-try {
-  git fetch origin | Out-Null
-  git pull --rebase origin $Branch | Out-Null
-} catch {
-  Write-Host "AVISO: pull/rebase falhou. Continuando mesmo assim..."
-}
-
-# Se nao houver mudancas, sai
 $status = git status --porcelain
-if ([string]::IsNullOrWhiteSpace($status)) {
-  Write-Host "OK: sem mudancas para enviar."
-  exit 0
+if (-not [string]::IsNullOrWhiteSpace($status)) {
+    $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    git add -A
+    git commit -m "auto: sync $stamp" | Out-Null
+    Write-Host "OK: commit criado em $stamp"
+} else {
+    Write-Host "OK: sem mudancas locais."
 }
-
-# Commit automatico com timestamp
-$stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-git add -A
 
 try {
-  git commit -m "auto: sync $stamp" | Out-Null
+    git fetch origin | Out-Null
+    git pull --rebase origin $Branch | Out-Null
 } catch {
-  # Caso nada para commitar (corrida rara), sai com sucesso
-  Write-Host "OK: nada novo para commitar."
-  exit 0
+    Write-Host "AVISO: pull/rebase falhou. Continuando..."
 }
 
-# Push
-git push origin $Branch
-Write-Host "OK: enviado para origin/$Branch em $stamp"
+git push origin $Branch | Out-Null
+Write-Host "OK: push concluido para origin/$Branch"
