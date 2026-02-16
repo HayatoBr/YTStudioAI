@@ -1,4 +1,4 @@
-# ARQUIVO OCULTO — PROJETO COMPLETO (COM ANIMAÇÃO VIA FFMPEG)
+# ARQUIVO OCULTO — PROJETO COMPLETO (VIA FFMPEG)
 
 Este projeto já vem com:
 - Estrutura completa
