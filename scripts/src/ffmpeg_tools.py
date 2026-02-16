@@ -199,3 +199,92 @@ def run_ffmpeg_with_progress(
         )
 
     return cp
+
+
+import re
+
+_SILENCE_START_RE = re.compile(r"silence_start:\s*([0-9.]+)")
+_SILENCE_END_RE = re.compile(r"silence_end:\s*([0-9.]+)")
+
+def detect_speech_segments(
+    path: str,
+    *,
+    silence_db: float = -35.0,
+    min_silence_sec: float = 0.25,
+    padding_sec: float = 0.05,
+) -> List[Dict[str, float]]:
+    """Detecta segmentos de fala via silencedetect.
+
+    Retorna lista de dicts: {"start": <sec>, "end": <sec>} representando trechos NÃO-silenciosos.
+    Útil para auto-sincronizar legendas sem usar STT.
+    """
+    if not path or not os.path.isfile(path):
+        return []
+    ffmpeg = ensure_ffmpeg()
+    # silencedetect escreve no STDERR
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostats",
+        "-i", path,
+        "-af", f"silencedetect=n={silence_db}dB:d={min_silence_sec}",
+        "-f", "null", "-"
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    log = res.stderr or ""
+
+    starts = [float(m.group(1)) for m in _SILENCE_START_RE.finditer(log)]
+    ends = [float(m.group(1)) for m in _SILENCE_END_RE.finditer(log)]
+
+    try:
+        dur = float(get_media_duration_seconds(path))
+    except Exception:
+        dur = None
+
+    # Constrói intervalos de silêncio
+    silences = []
+    for i, stt in enumerate(starts):
+        en = ends[i] if i < len(ends) else (dur if dur is not None else stt)
+        if en is None:
+            continue
+        silences.append((max(0.0, stt), max(0.0, en)))
+
+    # Se não detectou nada, assume fala contínua
+    if not silences:
+        if dur is None:
+            return [{"start": 0.0, "end": 9999.0}]
+        return [{"start": 0.0, "end": max(0.1, dur)}]
+
+    # Normaliza/ordena e mescla
+    silences.sort(key=lambda x: x[0])
+    merged = []
+    for s,e in silences:
+        if not merged or s > merged[-1][1] + 1e-6:
+            merged.append([s,e])
+        else:
+            merged[-1][1] = max(merged[-1][1], e)
+
+    # Fala = complemento dos silêncios
+    speech = []
+    cur = 0.0
+    end_total = dur if dur is not None else merged[-1][1]
+    for s,e in merged:
+        if s > cur + 1e-6:
+            speech.append((cur, s))
+        cur = max(cur, e)
+    if end_total is not None and end_total > cur + 1e-6:
+        speech.append((cur, end_total))
+
+    # Aplica padding (para não colar demais)
+    out = []
+    for s,e in speech:
+        s2 = max(0.0, s - padding_sec)
+        e2 = max(s2 + 0.05, e + padding_sec)
+        out.append({"start": s2, "end": e2})
+    return out
+
+def detect_leading_silence_seconds(path: str, *, silence_db: float = -35.0, min_silence_sec: float = 0.15) -> float:
+    """Retorna a duração do silêncio inicial (0 se não detectar)."""
+    segs = detect_speech_segments(path, silence_db=silence_db, min_silence_sec=min_silence_sec)
+    if not segs:
+        return 0.0
+    first_start = float(segs[0].get("start", 0.0))
+    return max(0.0, first_start)

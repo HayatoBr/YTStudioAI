@@ -7,6 +7,8 @@ from typing import Optional
 def find_watermark(project_root: str) -> Optional[str]:
     # Procura em locais comuns dentro do projeto
     candidates = [
+        os.path.join(project_root, "assets", "watermark", "watermark.png"),
+        os.path.join(project_root, "assets", "watermark", "watermark.webp"),
         os.path.join(project_root, "assets", "watermark.png"),
         os.path.join(project_root, "assets", "watermark.webp"),
         os.path.join(project_root, "assets", "branding", "watermark.png"),

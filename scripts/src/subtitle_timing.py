@@ -83,6 +83,44 @@ def _collect_chunks(data: Dict[str, Any]) -> List[Tuple[int, str]]:
     return out
 
 
+def _get_speech_windows(data: Dict[str, Any], duration_sec: float) -> List[Tuple[float, float]]:
+    """Optional speech windows for autosync.
+
+    If AO_SUB_AUTOSYNC=1 and data contains _speech_segments (list of {start,end}),
+    we will distribute subtitle chunks across those windows instead of the full duration.
+    """
+    enabled = os.getenv("AO_SUB_AUTOSYNC", "0").strip().lower() in {"1", "true", "yes"}
+    if not enabled:
+        return [(0.0, max(0.1, float(duration_sec)))]
+
+    segs = data.get("_speech_segments")
+    if not isinstance(segs, list) or not segs:
+        return [(0.0, max(0.1, float(duration_sec)))]
+
+    out: List[Tuple[float, float]] = []
+    for it in segs:
+        if not isinstance(it, dict):
+            continue
+        try:
+            s = float(it.get("start", 0.0))
+            e = float(it.get("end", 0.0))
+        except Exception:
+            continue
+        if e - s >= 0.10:
+            out.append((max(0.0, s), max(0.0, e)))
+    if not out:
+        return [(0.0, max(0.1, float(duration_sec)))]
+    # clamp to duration
+    dur = max(0.1, float(duration_sec))
+    out2 = []
+    for s,e in out:
+        if s >= dur:
+            continue
+        out2.append((s, min(dur, e)))
+    return out2 or [(0.0, dur)]
+
+
+
 def build_chunk_timeline(
     data: Dict[str, Any],
     duration_sec: float,
@@ -120,7 +158,9 @@ def build_chunk_timeline(
 
     # Use most of the duration (tiny safety margin to avoid edge clipping in render)
     total = max(0.1, float(duration_sec))
-    usable = max(0.1, total * 0.98)
+    windows = _get_speech_windows(data, total)
+    window_total = sum(max(0.0, e - s) for s, e in windows) or total
+    usable = max(0.1, window_total * 0.98)
 
     # Weights by text length (proxy for speech time)
     weights = [max(1, len(t)) for _, t in items]
@@ -186,6 +226,21 @@ def build_chunk_timeline(
     timeline: List[Dict[str, Any]] = []
     t = 0.0
 
+
+def _map_local_to_global(local_t: float) -> float:
+    """Maps a local timeline position (0..usable) into real time across speech windows."""
+    remaining = float(local_t)
+    for s, e in windows:
+        wlen = max(0.0, e - s)
+        if wlen <= 0:
+            continue
+        if remaining <= wlen + 1e-9:
+            return float(s + remaining)
+        remaining -= wlen
+    # fallback end
+    return float(windows[-1][1])
+
+
     for idx, ((scene_id, text), dur) in enumerate(zip(items, durations)):
         # Keep continuity: no big gaps between chunks
         if timeline:
@@ -193,8 +248,10 @@ def build_chunk_timeline(
             if t - prev_end > max_gap:
                 t = prev_end + max_gap
 
-        st_raw = t
-        en_raw = min(usable, t + float(dur))
+        st_raw_local = t
+        en_raw_local = min(usable, t + float(dur))
+        st_raw = _map_local_to_global(st_raw_local)
+        en_raw = _map_local_to_global(en_raw_local)
 
         # Apply anticipation/offset to displayed times
         st = max(0.0, (st_raw - ant) + off)
@@ -219,7 +276,7 @@ def build_chunk_timeline(
             }
         )
 
-        t = en_raw
+        t = en_raw_local
 
     # Remove helper fields (keep output stable)
     for it in timeline:

@@ -131,8 +131,26 @@ def _render_video_generic(
     scenes: List[Dict[str, Any]] = data.get("scenes", [])
     scenes = scenes if isinstance(scenes, list) else []
 
-    # ASS karaoke
-    timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type)
+
+# ASS karaoke
+# Auto-sync opcional (sem STT): detecta janelas de fala via silencedetect e distribui chunks só nelas.
+if os.getenv("AO_SUB_AUTOSYNC", "0").strip().lower() in {"1", "true", "yes"}:
+    try:
+        data["_speech_segments"] = detect_speech_segments(audio_path)
+    except Exception:
+        data.pop("_speech_segments", None)
+
+# Auto-ajuste de offset para compensar silêncio inicial (melhora sync em muitos casos)
+if os.getenv("AO_SUB_AUTO_OFFSET", "1").strip().lower() in {"1", "true", "yes"}:
+    try:
+        lead = float(detect_leading_silence_seconds(audio_path))
+        if lead > 0.01:
+            base_off = int(os.getenv("AO_SUB_OFFSET_MS", "0") or "0")
+            os.environ["AO_SUB_OFFSET_MS"] = str(base_off - int(round(lead * 1000.0)))
+    except Exception:
+        pass
+
+timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type)
     subs_dir = os.path.join(root, "output", "subs")
     os.makedirs(subs_dir, exist_ok=True)
     subs_name = f"{video_type}_karaoke.ass" if video_type == "long" else "short_karaoke.ass"
