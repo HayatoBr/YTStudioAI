@@ -1,4 +1,4 @@
-# ARQUIVO OCULTO — PROJETO COMPLETO (VIA FFMPEG)
+# ARQUIVO OCULTO — PROJETO COMPLETO (COM ANIMAÇÃO VIA FFMPEG)
 
 Este projeto já vem com:
 - Estrutura completa
@@ -94,6 +94,39 @@ Saída:
 Você pode limitar pelo `.env`:
 - `OPENAI_MAX_IMAGE_COUNT`
 - `OPENAI_MAX_TTS_CHARS`
+
+---
+
+## Perfis de execução (DEV vs PUBLISH) + fallback automático
+
+Para economizar durante correções e só usar **qualidade máxima** quando for publicar no YouTube:
+
+### DEV (padrão)
+- Preferência por **métodos gratuitos/locais** (imagens local/placeholder + Edge TTS)
+- Se não houver backend local de imagens, o pipeline continua **sem imagens** (ou placeholder)
+
+```powershell
+$env:AO_PROFILE="dev"
+python main.py --long-only --minutes 2.0
+```
+
+### PUBLISH (qualidade máxima)
+- Preferência por **OpenAI Images + OpenAI TTS**
+- Se acabar crédito/quota/budget, cai automaticamente para **fallback local**
+
+```powershell
+$env:AO_PROFILE="publish"
+python main.py --run-all --minutes 6.0
+```
+
+### Overrides (opcional)
+Forçar backends manualmente:
+- `AO_IMAGE_BACKEND=openai|local`
+- `AO_TTS_BACKEND=openai|edge`
+
+Backend local de imagens (Stable Diffusion):
+- `AO_SD_BACKEND=a1111|comfyui`
+- `AO_SD_URL=http://127.0.0.1:7860` (A1111) ou `http://127.0.0.1:8188` (ComfyUI)
 
 ## UM comando (run-all) — automação completa
 

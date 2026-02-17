@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
-import math
 from typing import Dict, Any, List, Optional, Tuple
 
-from .ffmpeg_tools import ensure_ffmpeg, run_ffmpeg_with_progress
+from .ffmpeg_tools import (
+    ensure_ffmpeg,
+    run_ffmpeg_with_progress,
+    detect_speech_segments,
+    detect_leading_silence_seconds,
+)
 from .watermark import validate_watermark
 from .subtitle_timing import build_chunk_timeline
 from .subtitle_ass import write_karaoke_ass, AssStyle
@@ -35,7 +39,7 @@ def _ff_escape_ass_path_windows(p: str) -> str:
     """
     Usado em ass='...'
     - backslash -> slash
-    - ':' -> '\:' (necessário no Windows)
+    - ':' -> '\\:' (necessário no Windows)
     - escapa apostrofo
     """
     p2 = p.replace("\\", "/")
@@ -125,32 +129,33 @@ def _render_video_generic(
     if not isinstance(audio_path, str) or not audio_path or not os.path.exists(audio_path):
         raise RuntimeError("Áudio não encontrado. Esperado data['_audio_path'] existente.")
 
+    # Watermark: validate_watermark devolve um caminho existente; caso contrário, usamos None.
     wm_path = validate_watermark(root)
     wm_path = wm_path if isinstance(wm_path, str) and wm_path and os.path.exists(wm_path) else None
 
     scenes: List[Dict[str, Any]] = data.get("scenes", [])
     scenes = scenes if isinstance(scenes, list) else []
 
+    # =========================
+    # ASS karaoke + auto-sync
+    # =========================
+    if os.getenv("AO_SUB_AUTOSYNC", "0").strip().lower() in {"1", "true", "yes"}:
+        try:
+            data["_speech_segments"] = detect_speech_segments(audio_path)
+        except Exception:
+            data.pop("_speech_segments", None)
 
-# ASS karaoke
-# Auto-sync opcional (sem STT): detecta janelas de fala via silencedetect e distribui chunks só nelas.
-if os.getenv("AO_SUB_AUTOSYNC", "0").strip().lower() in {"1", "true", "yes"}:
-    try:
-        data["_speech_segments"] = detect_speech_segments(audio_path)
-    except Exception:
-        data.pop("_speech_segments", None)
+    if os.getenv("AO_SUB_AUTO_OFFSET", "1").strip().lower() in {"1", "true", "yes"}:
+        try:
+            lead = float(detect_leading_silence_seconds(audio_path))
+            if lead > 0.01:
+                base_off = int(os.getenv("AO_SUB_OFFSET_MS", "0") or "0")
+                os.environ["AO_SUB_OFFSET_MS"] = str(base_off - int(round(lead * 1000.0)))
+        except Exception:
+            pass
 
-# Auto-ajuste de offset para compensar silêncio inicial (melhora sync em muitos casos)
-if os.getenv("AO_SUB_AUTO_OFFSET", "1").strip().lower() in {"1", "true", "yes"}:
-    try:
-        lead = float(detect_leading_silence_seconds(audio_path))
-        if lead > 0.01:
-            base_off = int(os.getenv("AO_SUB_OFFSET_MS", "0") or "0")
-            os.environ["AO_SUB_OFFSET_MS"] = str(base_off - int(round(lead * 1000.0)))
-    except Exception:
-        pass
+    timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type)
 
-timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type)
     subs_dir = os.path.join(root, "output", "subs")
     os.makedirs(subs_dir, exist_ok=True)
     subs_name = f"{video_type}_karaoke.ass" if video_type == "long" else "short_karaoke.ass"
@@ -161,7 +166,6 @@ timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type
     img_any = _first_existing_image(scenes)
 
     parallax_enabled = _env_bool("AO_PARALLAX_ENABLED", "0")
-
     fps = 25
 
     def build_ken(input_idx: int, out_label: str, dur: float, motion: Dict[str, Any]) -> str:
@@ -195,7 +199,6 @@ timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type
         pan_y = "ih/2-(ih/zoom/2)"
 
         hz = _env_float("AO_PARALLAX_HZ", 0.22)
-        # movimento suave do BG (offset no crop)
         bg_x = f"(iw-{width})/2 + {depth}*sin(2*PI*t*{hz})"
         bg_y = f"(ih-{height})/2 + {depth}*cos(2*PI*t*{hz})"
 
@@ -266,7 +269,6 @@ timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type
     n = max(1, len(scenes))
     scene_duration = float(duration_sec) / n
 
-    # entradas: 1 por cena (loop)
     cmd: List[str] = [FFMPEG, "-y"]
     image_paths: List[str] = []
 
@@ -334,10 +336,6 @@ timeline = build_chunk_timeline(data, float(duration_sec), video_type=video_type
     run_ffmpeg_with_progress(cmd, total_duration_sec=float(duration_sec), label=label)
     return out_path
 
-
-# =========================
-# Public API
-# =========================
 
 def render_short_video(data: Dict[str, Any], duration_sec: float) -> str:
     """SHORT 9:16 (1080x1920)"""
