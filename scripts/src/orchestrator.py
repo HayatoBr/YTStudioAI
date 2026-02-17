@@ -43,8 +43,8 @@ import os
 import json
 from typing import Dict, Any, Union
 
-from scripts.src.openai_generators import generate_short_script, generate_long_script
-from scripts.src.providers import generate_tts, get_profile
+from scripts.src.script_provider import generate_short_script, generate_long_script
+from scripts.src.tts_openai import generate_tts_mp3
 from scripts.src.audio_mix import mix_voice_with_music
 from scripts.src.renderer import render_short_video, render_long_video_16x9, render_long_video_9x16
 from scripts.src.ffmpeg_tools import get_media_duration_seconds
@@ -150,11 +150,10 @@ def run_auto_short() -> Dict[str, Any]:
     voice_path = os.path.join(out_audio_dir, "voice.mp3")
     mixed_path = os.path.join(out_audio_dir, "mixed.m4a")
 
-    prof = get_profile()
-    print(f"🎙️ Gerando narração (TTS, profile={prof})...")
-    generate_tts(
-        text=narration_text,
-        out_path=voice_path,
+    print("🎙️ Gerando narração (OpenAI TTS)...")
+    generate_tts_mp3(
+        narration_text,
+        voice_path,
         voice=os.getenv("AO_TTS_VOICE", "cedar"),
         speed=float(os.getenv("AO_TTS_SPEED", "1.0")),
     )
@@ -185,9 +184,9 @@ def run_auto_short() -> Dict[str, Any]:
     return {"video": out_video, "audio": mixed_path}
 
 
-def run_auto_long() -> Dict[str, Any]:
+def run_auto_long(minutes: float | None = None) -> Dict[str, Any]:
     """
-    Pipeline LONG automático:
+    Pipeline LONG automático (duração alvo via --minutes):
     - Roteiro LONG (JSON)
     - Legendas extraídas da narração
     - Visual plan (imagens/motion)
@@ -198,7 +197,7 @@ def run_auto_long() -> Dict[str, Any]:
 
     print("▶ Gerando LONG em modo automático...")
     print("🧠 Gerando roteiro LONG automático...")
-    long_data = _ensure_dict(generate_long_script())
+    long_data = _ensure_dict(generate_long_script(target_minutes=minutes))
 
     narration_text = str(long_data.get("narration") or "").strip()
     if not narration_text:
@@ -231,11 +230,10 @@ def run_auto_long() -> Dict[str, Any]:
     voice_path = os.path.join(out_audio_dir, "voice_long.mp3")
     mixed_path = os.path.join(out_audio_dir, "mixed_long.m4a")
 
-    prof = get_profile()
-    print(f"🎙️ Gerando narração LONG (TTS, profile={prof})...")
-    generate_tts(
-        text=narration_text,
-        out_path=voice_path,
+    print("🎙️ Gerando narração LONG (OpenAI TTS)...")
+    generate_tts_mp3(
+        narration_text,
+        voice_path,
         voice=os.getenv("AO_TTS_VOICE", "cedar"),
         speed=float(os.getenv("AO_TTS_SPEED", "1.0")),
     )
